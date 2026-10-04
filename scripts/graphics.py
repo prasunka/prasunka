@@ -60,10 +60,10 @@ NEW_MOON = dt.datetime(2000, 1, 6, 18, 14, tzinfo=dt.timezone.utc)
 THEME = """
 :root{--bg:#f6f8fa;--on:#1f2328;--txt:#57606a;--body:#d0d7de;--win:#bfc6cd;--star:transparent;
 --s0:#dce8f5;--s1:#e8eef5;--s2:#f4ebe3;--s3:#f8dcc4;--far:#e3e8ee;--moond:transparent;--sun:#f0b429;--beacon:#cf222e;
---c0:#1a7f37;--c1:#0969da;--c2:#bf8700;--c3:#8250df;--c4:#cf222e;--c5:#6e7781}
+--c0:#1a7f37;--c1:#0969da;--c2:#bf8700;--c3:#8250df;--c4:#1b7c83;--c5:#6e7781}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--on:#7ee787;--txt:#8b949e;--body:#21262d;--win:#30363d;--star:#e6edf3;
 --s0:#0d1117;--s1:#0f1525;--s2:#141a31;--s3:#1d1c3a;--far:#171c2c;--moond:#1d2436;--sun:transparent;--beacon:#ff6b6b;
---c0:#7ee787;--c1:#58a6ff;--c2:#e3b341;--c3:#bc8cff;--c4:#ff7b72;--c5:#8b949e}}
+--c0:#7ee787;--c1:#58a6ff;--c2:#e3b341;--c3:#bc8cff;--c4:#39c5cf;--c5:#8b949e}}
 .bg{fill:var(--bg)}.far{fill:var(--far)}.moond{fill:var(--moond)}.sun{fill:var(--sun)}.beacon{fill:var(--beacon)}.met{fill:var(--star)}.s0{fill:var(--s0)}.s1{fill:var(--s1)}.s2{fill:var(--s2)}.s3{fill:var(--s3)}.on{fill:var(--on)}.txt{fill:var(--txt)}.body{fill:var(--body)}.win{fill:var(--win)}.star{fill:var(--star)}
 .tw{animation:tw 4s steps(1) infinite}.lit{opacity:0;animation:on .3s steps(2) forwards}
 .beacon{animation:beacon 2.4s steps(1) infinite}.met{opacity:0;animation:met 15s linear 4s infinite}
@@ -135,10 +135,13 @@ def svg(w, h, body, label):
 
 
 def palette(repos):
-    """Language -> color index: top 5 by repo count (ties favour newer repos), the rest share the last."""
+    """Language -> color index for lit buildings only, since only lit windows show colour.
+
+    Top 5 by commits in the last 30 days (ties favour newer repos); the rest share the last.
+    """
     counts = {}
     for r in reversed(repos):
-        if r["language"]: counts[r["language"]] = counts.get(r["language"], 0) + 1
+        if r["language"] and r["recent"]: counts[r["language"]] = counts.get(r["language"], 0) + r["recent"]
     ranked = sorted(counts, key=lambda k: -counts[k])
     return {name: i for i, name in enumerate(ranked[:5])}, ranked
 
@@ -184,7 +187,8 @@ def skyline(repos, colors, ranked, now):
     rng = random.Random(42)
     n = len(repos)
     slot = max(4, min(9, 120 // max(n, 1)))
-    legend = ranked[:5] + (["OTHER"] if len(ranked) > 5 else [])
+    other = len(ranked) > 5 or any(r["recent"] and not r["language"] for r in repos)
+    legend = ranked[:5] + (["OTHER"] if other else [])
     legend_w = sum(text_width(name) + 9 for name in legend) - 9
     w = max(128, n * slot + 8, round(legend_w * LEGEND_SCALE) + 16)
     ground, h = 46, 54
@@ -238,8 +242,9 @@ def skyline(repos, colors, ranked, now):
 
     # Legend is drawn at a smaller scale than the city so it reads as a caption.
     items, x = [], 0
-    for k, name in enumerate(legend):
-        items.append(path(f"c{k}", [(x + a, b) for a in range(3) for b in range(1, 4)]))
+    colors = {**colors, "OTHER": 5}
+    for name in legend:
+        items.append(path(f"c{colors[name]}", [(x + a, b) for a in range(3) for b in range(1, 4)]))
         items.append(path("txt", text_cells(name, x + 5, 0)))
         x += text_width(name) + 9
     lx = (w - legend_w * LEGEND_SCALE) / 2
