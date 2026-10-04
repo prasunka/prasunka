@@ -1,2 +1,21 @@
-```math
-\ce{$\unicode[goombafont; color:red; pointer-events: none; z-index: -10; position: fixed; top: 0; left: 0; height: 100vh; object-fit: cover; background-size: cover; width: 130vw; opacity: 0.5; background: url('https://github.com/prasunka/prasunka/blob/assets/WW1GamEyZHliM1Z1WkE9PQ.png?raw=true');]{x0000}$}
+<img src="assets/banner.svg" alt="Prasun Kumar" width="100%">
+
+**Founding Backend Engineer at [AlgoTest](https://algotest.in).** GSoC '20 with KDE. CSE at IIIT Guwahati.
+
+We shape our tools, and then our tools shape our thinking. I try to choose carefully.
+
+&nbsp;
+
+### The city
+
+<img src="assets/skyline.svg" alt="Every project I've built, public and private, as a pixel skyline. Buildings grow with commits, lit windows show the last 30 days." width="100%">
+
+### High scores
+
+<img src="assets/scores.svg" alt="High scores from the last year of work" width="60%">
+
+### Contact
+
+[Email](mailto:contact@prasunkr.in) · [LinkedIn](https://www.linkedin.com/in/prasunkr) · [GitHub](https://github.com/prasunka)
+
+<sub>The city: one building per project, public and private. Height is commits, lit windows are the last 30 days, colours are languages. Refreshed weekly.</sub>
