@@ -9,7 +9,7 @@ Without --data, fetches from the GitHub GraphQL API using PROFILE_TOKEN.
 import argparse, datetime as dt, json, math, os, random, urllib.error, urllib.request
 
 REPOS_QUERY = """
-query($cursor: String, $since: GitTimestamp!) {
+query($cursor: String, $since: GitTimestamp!, $week: GitTimestamp!) {
   viewer {
     login createdAt
     repositories(ownerAffiliations: OWNER, isFork: false, first: 50, after: $cursor,
@@ -20,6 +20,7 @@ query($cursor: String, $since: GitTimestamp!) {
         defaultBranchRef { target { ... on Commit {
           total: history { totalCount }
           recent: history(since: $since) { totalCount }
+          week: history(since: $week) { totalCount }
         } } }
       }
     }
@@ -51,16 +52,25 @@ FONT = {
 }
 
 LEGEND_SCALE = 0.6
+SKY_BANDS = 4
+BAYER = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]
+SYNODIC_MONTH = 29.530588853
+NEW_MOON = dt.datetime(2000, 1, 6, 18, 14, tzinfo=dt.timezone.utc)
 
 THEME = """
 :root{--bg:#f6f8fa;--on:#1f2328;--txt:#57606a;--body:#d0d7de;--win:#bfc6cd;--star:transparent;
+--s0:#dce8f5;--s1:#e8eef5;--s2:#f4ebe3;--s3:#f8dcc4;--far:#e3e8ee;--moond:transparent;--sun:#f0b429;--beacon:#cf222e;
 --c0:#1a7f37;--c1:#0969da;--c2:#bf8700;--c3:#8250df;--c4:#cf222e;--c5:#6e7781}
 @media(prefers-color-scheme:dark){:root{--bg:#0d1117;--on:#7ee787;--txt:#8b949e;--body:#21262d;--win:#30363d;--star:#e6edf3;
+--s0:#0d1117;--s1:#0f1525;--s2:#141a31;--s3:#1d1c3a;--far:#171c2c;--moond:#1d2436;--sun:transparent;--beacon:#ff6b6b;
 --c0:#7ee787;--c1:#58a6ff;--c2:#e3b341;--c3:#bc8cff;--c4:#ff7b72;--c5:#8b949e}}
-.bg{fill:var(--bg)}.on{fill:var(--on)}.txt{fill:var(--txt)}.body{fill:var(--body)}.win{fill:var(--win)}.star{fill:var(--star)}
+.bg{fill:var(--bg)}.far{fill:var(--far)}.moond{fill:var(--moond)}.sun{fill:var(--sun)}.beacon{fill:var(--beacon)}.met{fill:var(--star)}.s0{fill:var(--s0)}.s1{fill:var(--s1)}.s2{fill:var(--s2)}.s3{fill:var(--s3)}.on{fill:var(--on)}.txt{fill:var(--txt)}.body{fill:var(--body)}.win{fill:var(--win)}.star{fill:var(--star)}
 .tw{animation:tw 4s steps(1) infinite}.lit{opacity:0;animation:on .3s steps(2) forwards}
+.beacon{animation:beacon 2.4s steps(1) infinite}.met{opacity:0;animation:met 15s linear 4s infinite}
+@keyframes beacon{60%{opacity:.15}}
+@keyframes met{0%{transform:translate(0,0);opacity:0}1%{opacity:1}6%{opacity:1}9%{transform:translate(-30px,30px);opacity:0}100%{transform:translate(-30px,30px);opacity:0}}
 @keyframes on{to{opacity:1}}@keyframes tw{0%,80%{opacity:1}90%{opacity:.2}}
-@media(prefers-reduced-motion:reduce){.tw,.lit{animation:none}.lit{opacity:1}}
+@media(prefers-reduced-motion:reduce){.tw,.lit,.beacon,.met{animation:none}.lit{opacity:1}.met{display:none}}
 """ + "".join(f".c{i}{{fill:var(--c{i})}}" for i in range(6))
 
 
@@ -81,16 +91,18 @@ def gql(query, variables, token):
 def fetch(token):
     now = dt.datetime.now(dt.timezone.utc)
     since = (now - dt.timedelta(days=30)).isoformat()
+    week = (now - dt.timedelta(days=7)).isoformat()
     repos, cursor = [], None
     while True:
-        viewer = gql(REPOS_QUERY, {"cursor": cursor, "since": since}, token)
+        viewer = gql(REPOS_QUERY, {"cursor": cursor, "since": since, "week": week}, token)
         page = viewer["repositories"]
         for r in page["nodes"]:
             target = (r["defaultBranchRef"] or {}).get("target") or {}
             repos.append({"name": r["name"], "createdAt": r["createdAt"],
                           "language": (r["primaryLanguage"] or {}).get("name"),
                           "commits": target.get("total", {}).get("totalCount", 0),
-                          "recent": target.get("recent", {}).get("totalCount", 0)})
+                          "recent": target.get("recent", {}).get("totalCount", 0),
+                          "week": target.get("week", {}).get("totalCount", 0)})
         if not page["pageInfo"]["hasNextPage"]:
             break
         cursor = page["pageInfo"]["endCursor"]
@@ -131,7 +143,44 @@ def palette(repos):
     return {name: i for i, name in enumerate(ranked[:5])}, ranked
 
 
-def skyline(repos, colors, ranked):
+def sky(w, ground):
+    """Banded gradient, dithered from each band into the next with a 4x4 Bayer matrix."""
+    band = ground / SKY_BANDS
+    out = []
+    for k in range(SKY_BANDS):
+        rows = [y for y in range(ground) if min(int(y / band), SKY_BANDS - 1) == k]
+        out.append(f'<rect class="s{k}" x="0" y="{rows[0]}" width="{w}" height="{len(rows)}"/>')
+    for y in range(ground):
+        pos = y / band
+        k = min(int(pos), SKY_BANDS - 1)
+        if k < SKY_BANDS - 1 and pos - k > 0.5:
+            t = (pos - k - 0.5) * 32
+            out.append(path(f"s{k + 1}", [(x, y) for x in range(w) if BAYER[y % 4][x % 4] < t]))
+    return out
+
+
+def disc(cx, cy, size):
+    """Pixel centres of a disc, with unit-circle coordinates."""
+    r = size / 2
+    for j in range(size):
+        for i in range(size):
+            u, v = (i + 0.5 - r) / r, (j + 0.5 - r) / r
+            if u * u + v * v <= 1:
+                yield cx + i, cy + j, u, v
+
+
+def moon(cx, cy, when, size=9):
+    """Moon phase on `when`: lit cells and earthshine cells."""
+    phase = ((when - NEW_MOON).total_seconds() / 86400 / SYNODIC_MONTH) % 1
+    k = math.cos(2 * math.pi * phase)
+    lit, dark = [], []
+    for x, y, u, v in disc(cx, cy, size):
+        edge = k * math.sqrt(1 - v * v)
+        (lit if (u > edge if phase < 0.5 else u < -edge) else dark).append((x, y))
+    return lit, dark
+
+
+def skyline(repos, colors, ranked, now):
     rng = random.Random(42)
     n = len(repos)
     slot = max(4, min(9, 120 // max(n, 1)))
@@ -143,20 +192,37 @@ def skyline(repos, colors, ranked):
     top_c = max((r["commits"] for r in repos), default=1) or 1
     top_r = max((r["recent"] for r in repos), default=1) or 1
 
-    stars = [(rng.randrange(w), rng.randrange(ground - 14)) for _ in range(w // 4)]
-    moon = [(w - 14 + x, 3 + y) for y, row in enumerate(["01110", "11100", "11000", "11100", "01110"])
-            for x, b in enumerate(row) if b == "1"]
-    out = [path("star", moon + stars[len(stars) // 3:]), path("star tw", stars[: len(stars) // 3])]
+    out = sky(w, ground)
+    mx, my = w - 16, 3
+    stars = [(x, y) for x, y in ((rng.randrange(w), rng.randrange(ground - 14)) for _ in range(w // 4))
+             if not (mx - 2 <= x <= mx + 10 and y <= my + 10)]
+    out += [path("star", stars[len(stars) // 3:]), path("star tw", stars[: len(stars) // 3])]
+    lit_moon, dark_moon = moon(mx, my, now)
+    out += [path("moond", dark_moon), path("star", lit_moon),
+            path("sun", [(x, y) for x, y, _, _ in disc(mx + 1, my + 1, 7)])]
+    out.append('<g class="met">' + "".join(
+        f'<rect x="{w * 0.6 + d:.0f}" y="{9 - d}" width="1" height="1" opacity="{o}"/>'
+        for d, o in ((0, 1), (1, .8), (2, .6), (3, .4), (4, .25), (5, .12))) + "</g>")
+
+    # Distant skyline for depth: random silhouettes behind the real buildings.
+    x = 0
+    while x < w:
+        fw, fh = rng.randint(3, 7), rng.randint(4, 20)
+        out.append(f'<rect class="far" x="{x}" y="{ground - fh}" width="{fw}" height="{fh}"/>')
+        x += fw + rng.randint(0, 2)
 
     # Lit windows sit over the dim ones and switch on after load, busiest building first.
-    body, windows_all, lit = [], [], []
+    body, windows_all, lit, beacons = [], [], [], []
     for i, r in enumerate(repos):
         bw = slot - 1
         bh = 6 + round(30 * math.log1p(r["commits"]) / math.log1p(top_c))
         x, top = x0 + i * slot, ground - bh
         body += [(x + c, y) for c in range(bw) for y in range(top, ground)]
-        if i % 4 == 1 and bw >= 3:
+        # Antennas are scenery; a beacon on top marks commits in the last 7 days.
+        if (i % 4 == 1 or r.get("week")) and bw >= 3:
             body += [(x + bw // 2, top - k) for k in (1, 2, 3)]
+        if r.get("week"):
+            beacons.append((x + bw // 2, top - 4))
         windows = [(x + c, y) for y in range(top + 2, ground - 1, 2) for c in range(1, bw - 1, 2)]
         windows_all += windows
         share = math.sqrt(r["recent"] / top_r) if r["recent"] else 0
@@ -164,6 +230,8 @@ def skyline(repos, colors, ranked):
             on = rng.sample(windows, max(1, round(len(windows) * share)))
             lit.append((r["recent"], f"c{colors.get(r['language'], 5)}", on))
     out += [path("body", body), path("win", windows_all)]
+    for k, (bx, by) in enumerate(beacons):
+        out.append(f'<rect class="beacon" x="{bx}" y="{by}" width="1" height="1" style="animation-delay:{k * 0.8 % 2.4:.1f}s"/>')
     for rank, (_, cls, cells) in enumerate(sorted(lit, key=lambda t: -t[0])):
         out.append(path(f"{cls} lit", cells, f' style="animation-delay:{0.8 + rank * 0.35:.2f}s"'))
     out.append(f'<rect class="txt" x="0" y="{ground}" width="{w}" height="1"/>')
@@ -219,7 +287,7 @@ def main():
     repos = [r for r in data["repos"] if r["name"] != data["login"] and r["commits"]]
     colors, ranked = palette(repos)
     os.makedirs("assets", exist_ok=True)
-    open("assets/skyline.svg", "w").write(skyline(repos, colors, ranked))
+    open("assets/skyline.svg", "w").write(skyline(repos, colors, ranked, dt.datetime.now(dt.timezone.utc)))
     open("assets/scores.svg", "w").write(scores(data, repos))
 
 
