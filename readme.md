@@ -18,4 +18,4 @@ We shape our tools, and then our tools shape our thinking. I try to choose caref
 
 [Email](mailto:contact@prasunkr.in) · [LinkedIn](https://www.linkedin.com/in/prasunkr) · [GitHub](https://github.com/prasunka)
 
-<sub>The city: one building per project, public and private. Height is commits, lit windows are the last 30 days, colours are languages. Refreshed weekly.</sub>
+<sub>The city: one building per project, public and private. Height is commits, lit windows are the last 30 days, a blinking beacon means commits in the last 7 days, colours are languages. Refreshed daily.</sub>
